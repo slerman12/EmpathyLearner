@@ -14,15 +14,10 @@ class Ball:
         self.position = euclid.Vector2(screen_width / 2, screen_height / 2)
         self.size = size
         self.color = color
-        
-        # Randomize direction of initial velocity
-        if random.randint(0, 1) == 0:
-            self.velocity = -(self.position - agent.position).normalize() * initial_velocity
-        else:
-            self.velocity = -(self.position - opponent.position).normalize() * initial_velocity
+        self.velocity = get_random_velocity(math.pi * 3 / 10, math.pi * 7 / 10)
 
         # Set geometrical representation
-        self.ball_geometry = None
+        self.geometry = None
 
     def display(self):
         rx, ry = int(self.position.x), int(self.position.y)
@@ -31,22 +26,20 @@ class Ball:
         
     def update_geometry(self):
         p = Point(self.position.x, self.position.y)
-        self.ball_geometry = p.buffer(self.size)
+        self.geometry = p.buffer(self.size)
         
     def move(self):
         self.position += self.velocity * dtime
         self.bounds()
 
     def bounds(self):
-        position_previous = self.position
-
         # Horizontal bounds
         if self.position.x > screen_width + self.size or self.position.x + self.size < 0:
             if self.position.x > screen_width:
-                opponent.set_emotion(score_need=opponent.score_need + 1, progress_need=200)
+                opponent.set_emotion(score_need=opponent.score_need + 1, progress_need=250)
                 agent.set_emotion(score_need=agent.score_need - 1)
             elif self.position.x < 0:
-                agent.set_emotion(score_need=agent.score_need + 1, progress_need=200)
+                agent.set_emotion(score_need=agent.score_need + 1, progress_need=250)
                 opponent.set_emotion(score_need=opponent.score_need - 1)
 
             self.position.x = screen_width / 2
@@ -62,12 +55,6 @@ class Ball:
 
             return
 
-        def unfreeze(pos):
-            # Frozen ball
-            if pos == position_previous:
-                self.velocity = get_random_velocity(0, 2 * math.pi)
-                self.position += self.velocity * dtime
-
         # Vertical bounds
         if self.position.y <= self.size:
             self.position.y = 2 * self.size - self.position.y
@@ -75,6 +62,13 @@ class Ball:
         elif self.position.y >= screen_height - self.size:
             self.position.y = 2 * (screen_height - self.size) - self.position.y
             self.velocity = self.velocity.reflect(euclid.Vector2(0, 1))
+
+        position_previous = self.position
+
+        def unfreeze(pos):
+            # Frozen ball
+            if pos == position_previous:
+                self.velocity = get_random_velocity(0, 2 * math.pi)
 
         # Paddle collisions
         if self.paddle_collision(agent):
@@ -88,81 +82,80 @@ class Ball:
         if self.paddle_collision(empathizer):
             unfreeze(self.position)
 
+    def is_collision(self):
+        # Vertical bounds
+        if self.position.y <= self.size:
+            return True
+        elif self.position.y >= screen_height - self.size:
+            return True
+
+        # Function to test if there's a paddle collision
+        def is_paddle_collision(other):
+            if ball_in_paddle_range(self, other):
+                #  Update geometries
+                other.update_geometry()
+                self.update_geometry()
+    
+                # If corner
+                if self.geometry.intersects(other.geometry):
+                    return True
+                else:
+                    return False
+
+        # Paddle collisions
+        return is_paddle_collision(agent) or is_paddle_collision(opponent) or is_paddle_collision(empathizer)
+
     # Collision between ball and paddle
     def paddle_collision(self, other):
-        if (other.position.x + other.max_length // 2 + self.size > self.position.x > other.position.x - other.max_length // 2 - self.size and
-                other.position.y + other.max_length // 2 + self.size > self.position.y > other.position.y - other.max_length // 2 - self.size):
+        if ball_in_paddle_range(self, other):
             other.update_geometry()
-            paddle_coords = other.paddle_geometry.exterior.coords
+            paddle_coords = other.geometry.exterior.coords
 
             self.update_geometry()
 
-            # if corner
-            if self.ball_geometry.contains(Point(paddle_coords[0])) or \
-                    self.ball_geometry.contains(Point(paddle_coords[1])) or \
-                    self.ball_geometry.contains(Point(paddle_coords[2])) or \
-                    self.ball_geometry.contains(Point(paddle_coords[3])):
-                # if self.ball_geometry.contains(LineString([paddle_coords[0], paddle_coords[1]])):
-                #     normal_vector = euclid.Vector2(-paddle_coords[1][1] + paddle_coords[0][1],
-                #                                    paddle_coords[1][0] - paddle_coords[0][0]).normalize()
-                #     self.position -= self.velocity * dtime
-                #     self.velocity = self.velocity.reflect(normal_vector)
-                # elif self.ball_geometry.contains(LineString([paddle_coords[1], paddle_coords[2]])):
-                #     normal_vector = euclid.Vector2(-paddle_coords[2][1] + paddle_coords[1][1],
-                #                                    paddle_coords[2][0] - paddle_coords[1][0]).normalize()
-                #     self.position -= self.velocity * dtime
-                #     self.velocity = self.velocity.reflect(normal_vector)
-                # elif self.ball_geometry.contains(LineString([paddle_coords[2], paddle_coords[3]])):
-                #     normal_vector = euclid.Vector2(-paddle_coords[3][1] + paddle_coords[2][1],
-                #                                    paddle_coords[3][0] - paddle_coords[2][0]).normalize()
-                #     self.position -= self.velocity * dtime
-                #     self.velocity = self.velocity.reflect(normal_vector)
-                # elif self.ball_geometry.contains(LineString([paddle_coords[3], paddle_coords[0]])):
-                #     normal_vector = euclid.Vector2(-paddle_coords[0][1] + paddle_coords[3][1],
-                #                                    paddle_coords[0][0] - paddle_coords[3][0]).normalize()
-                #     self.position -= self.velocity * dtime
-                #     self.velocity = self.velocity.reflect(normal_vector)
-                # else:
-                #     self.position -= self.velocity * dtime
-                #     self.velocity = get_random_velocity(0, 2 * math.pi)
-                self.position -= self.velocity * dtime
-                self.velocity *= -1
-                return True
+            # If corner
+            for i in range(4):
+                if self.geometry.contains(Point(paddle_coords[i])):
+                    self.position -= self.velocity * dtime
+                    self.velocity.x = self.position.x - paddle_coords[0][0]
+                    self.velocity.y = self.position.y - paddle_coords[0][1]
+                    self.velocity = self.velocity.normalize() * initial_velocity
+                    return True
             else:
-                if LineString([paddle_coords[0], paddle_coords[1]]).intersects(self.ball_geometry):
+                if LineString([paddle_coords[0], paddle_coords[1]]).intersects(self.geometry):
                     normal_vector = euclid.Vector2(-paddle_coords[1][1] + paddle_coords[0][1],
                                                    paddle_coords[1][0] - paddle_coords[0][0]).normalize()
 
                     self.position -= self.velocity * dtime
                     self.velocity = self.velocity.reflect(normal_vector)
                     return True
-                elif LineString([paddle_coords[1], paddle_coords[2]]).intersects(self.ball_geometry):
+                elif LineString([paddle_coords[1], paddle_coords[2]]).intersects(self.geometry):
                     normal_vector = euclid.Vector2(-paddle_coords[2][1] + paddle_coords[1][1],
                                                    paddle_coords[2][0] - paddle_coords[1][0]).normalize()
                     self.position -= self.velocity * dtime
                     self.velocity = self.velocity.reflect(normal_vector)
                     return True
-                elif LineString([paddle_coords[2], paddle_coords[3]]).intersects(self.ball_geometry):
+                elif LineString([paddle_coords[2], paddle_coords[3]]).intersects(self.geometry):
                     normal_vector = euclid.Vector2(-paddle_coords[3][1] + paddle_coords[2][1],
                                                    paddle_coords[3][0] - paddle_coords[2][0]).normalize()
                     self.position -= self.velocity * dtime
                     self.velocity = self.velocity.reflect(normal_vector)
                     return True
-                elif LineString([paddle_coords[3], paddle_coords[0]]).intersects(self.ball_geometry):
+                elif LineString([paddle_coords[3], paddle_coords[0]]).intersects(self.geometry):
                     normal_vector = euclid.Vector2(-paddle_coords[0][1] + paddle_coords[3][1],
                                                    paddle_coords[0][0] - paddle_coords[3][0]).normalize()
                     self.position -= self.velocity * dtime
                     self.velocity = self.velocity.reflect(normal_vector)
                     return True
-
-            return False
+                else:
+                    return False
 
 
 class Paddle:
-    def __init__(self, position, width, height, degrees, color, my_opponent, my_empathizer, emotions=False):
-        self.score_need = 5
-        self.return_need = 5
-        self.progress_need = 200
+    def __init__(self, position, width, height, degrees, color, others, emotions=False):
+        self.score_need = 1
+        self.return_need = -1
+        self.progress_need = 125
 
         self.position = position
         self.width = int(width)
@@ -170,14 +163,13 @@ class Paddle:
         self.degrees = int(degrees)
         self.color = color
         self.max_length = max(self.width, self.height)
-        self.opponent = my_opponent
-        self.empathizer = my_empathizer
+        self.others = others
         self.emotions = emotions
 
         self.surf = None
         self.blit = None
         
-        self.paddle_geometry = None
+        self.geometry = None
 
     def display(self):
         # Create surface
@@ -213,28 +205,27 @@ class Paddle:
 
             if return_need is not None:
                 self.return_need = return_need
-                if self.return_need > 10:
-                    self.return_need = 10
-                elif self.return_need < 0:
-                    self.return_need = 0
+                if self.return_need > 5:
+                    self.return_need = 5
+                elif self.return_need < -5:
+                    self.return_need = -5
 
             if score_need is not None:
                 self.score_need = score_need
-                if self.score_need > 10:
-                    self.score_need = 10
-                elif self.score_need < 0:
-                    self.score_need = 0
+                if self.score_need > 5:
+                    self.score_need = 5
+                elif self.score_need < -5:
+                    self.score_need = -5
 
         # Set emotion
-        self.color = (int(200 - self.progress_need), int(self.score_need * 25), int(self.return_need * 25))
-        
+        self.color = (int(self.progress_need), int(self.return_need + 5) * 25, int(self.score_need + 5) * 25)
+
     def update_geometry(self):
         # Update geometrical representation
         paddle_unoriented = box(self.position.x - self.width // 2, self.position.y - self.height // 2,
                                 self.position.x +
                                 self.width // 2, self.position.y + self.height // 2)
-        self.paddle_geometry = rotate(paddle_unoriented, angle=360 - self.degrees,
-                                      origin=(self.position.x, self.position.y))
+        self.geometry = rotate(paddle_unoriented, angle=360 - self.degrees, origin=(self.position.x, self.position.y))
 
     def move(self, right, down, counterclockwise):
         # Update position and orientation
@@ -246,32 +237,49 @@ class Paddle:
         self.bounds(right, down, counterclockwise)
 
     def bounds(self, right, down, counterclockwise):
-        # TODO: write is_paddle_in_bounds() function
-        if self.position.x + self.max_length // 2 + ball.size > ball.position.x > self.position.x - self.max_length // 2 - ball.size and self.position.y + self.max_length // 2 + ball.size > ball.position.y > self.position.y - self.max_length // 2 - ball.size:
+        if ball_in_paddle_range(ball, self):
             # Update geometrical representation
             self.update_geometry()
             
-            if self.paddle_geometry.intersects(ball.ball_geometry):
+            if self.geometry.intersects(ball.geometry):
                 self.degrees = (self.degrees - counterclockwise) % 360
                 self.position.x = self.position.x - right
                 self.position.y = self.position.y - down
-                # if right != 0 or down != 0:
-                #     ball.velocity = euclid.Vector2(right, down).normalize() * initial_velocity # TODO: account for 0, 0 and angle
+                
+                ball.position.x += right
+                ball.position.y += down
+                
+                if not ball.is_collision():
+                    # Update position and orientation
+                    self.degrees = (self.degrees + counterclockwise) % 360
+                    self.position.x = self.position.x + right
+                    self.position.y = self.position.y + down
+                else:
+                    ball.position.x -= right
+                    ball.position.y -= down
+
+        # Update geometrical representation
+        self.update_geometry()
 
         # Horizontal and vertical bounds
-        if self.position.x - self.max_length / 2 < 0:
-            self.position.x = self.max_length / 2
-        if self.position.x + self.max_length / 2 > screen_width:
-            self.position.x = screen_width - self.max_length / 2
-        if self.position.y - self.max_length / 2 < 0:
-            self.position.y = self.max_length / 2
-        if self.position.y + self.max_length / 2 > screen_height:
-            self.position.y = screen_height - self.max_length / 2
+        if LineString([(-1, -1), (-1, screen_height + 1), (screen_width + 1, screen_height + 1),
+                       (screen_width + 1, -1), (-1, -1)]).intersects(self.geometry):
+            self.degrees = (self.degrees - counterclockwise) % 360
+            self.position.x = self.position.x - right
+            self.position.y = self.position.y - down
+            return
 
-            # if self.paddle_geometry.intersects(agent.paddle_geometry) or self.paddle_geometry.intersects(opponent.paddle_geometry) or self.paddle_geometry.intersects(empathizer.paddle_geometry):
-            #     self.degrees = (self.degrees - counterclockwise) % 360
-            #     self.position.x = self.position.x - right
-            #     self.position.y = self.position.y - down
+        # Update geometry
+        self.update_geometry()
+
+        for paddle in self.others:
+            paddle.update_geometry()
+
+            # Horizontal and vertical bounds
+            if paddle.geometry.intersects(self.geometry):
+                self.degrees = (self.degrees - counterclockwise) % 360
+                self.position.x = self.position.x - right
+                self.position.y = self.position.y - down
 
 
 def get_random_velocity(range_min, range_max):
@@ -282,6 +290,11 @@ def get_random_velocity(range_min, range_max):
     new_vector.normalize()
     new_vector *= initial_velocity
     return new_vector
+
+
+def ball_in_paddle_range(b, p):
+    return p.position.x + p.max_length // 2 + b.size > b.position.x > p.position.x - p.max_length // 2 - b.size and \
+           p.position.y + p.max_length // 2 + b.size > b.position.y > p.position.y - p.max_length // 2 - b.size
 
 
 if __name__ == "__main__":
@@ -301,14 +314,16 @@ if __name__ == "__main__":
 
     pg.display.set_caption('Empathy in Pong')
 
-    empathizer = Paddle(euclid.Vector2(screen_width / 2, 0), screen_width / 40, screen_height / 5, 90,
-                        red, None, None)
+    empathizer = Paddle(euclid.Vector2(screen_width / 2, screen_width / 40), screen_width / 40, screen_height / 5, 90,
+                        red, None)
     agent = Paddle(euclid.Vector2(screen_width - screen_height / 10, screen_height / 2), screen_width / 40,
-                   screen_height / 5, 0, black, None, empathizer, True)
+                   screen_height / 5, 0, black, None, True)
     opponent = Paddle(euclid.Vector2(screen_height / 10, screen_height / 2), screen_width / 40, screen_height / 5, 0,
-                      black, agent, None)
+                      black, None, True)
 
-    agent.opponent = opponent
+    empathizer.others = [agent, opponent]
+    agent.others = [empathizer, opponent]
+    opponent.others = [agent, empathizer]
 
     ball = Ball(screen_width / 60, blue)
 
@@ -356,8 +371,8 @@ if __name__ == "__main__":
         elif 180 < opponent.degrees < 340:
             agent.degrees = 340
 
-        agent.set_emotion(progress_need=agent.progress_need - .1)
-        opponent.set_emotion(progress_need=opponent.progress_need - .1)
+        agent.set_emotion(progress_need=agent.progress_need - .25)
+        opponent.set_emotion(progress_need=opponent.progress_need - .25)
 
         agent.display()
         opponent.display()
