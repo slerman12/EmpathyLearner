@@ -22,7 +22,7 @@ class Ball:
     def display(self):
         rx, ry = int(self.position.x), int(self.position.y)
         pg.draw.circle(screen, self.color, (rx, ry), self.size)
-        pg.draw.circle(screen, black, (rx, ry), self.size, int(self.size/7))
+        pg.draw.circle(screen, black, (rx, ry), self.size, int(self.size / 7))
 
     def update_geometry(self):
         p = Point(self.position.x, self.position.y)
@@ -36,18 +36,21 @@ class Ball:
         # Horizontal bounds
         if self.position.x > screen_width + self.size or self.position.x + self.size < 0:
             if self.position.x > screen_width:
-                opponent.set_emotion(score_need=opponent.score_need + 1, progress_need=250)
-                agent.set_emotion(score_need=agent.score_need - 1)
+                opponent.score += 1
+                opponent.set_emotion(score_need=opponent.score_need + 5)
+                agent.set_emotion(score_need=agent.score_need - 3)
+                agent.set_emotion()
             elif self.position.x < 0:
-                agent.set_emotion(score_need=agent.score_need + 1, progress_need=250)
-                opponent.set_emotion(score_need=opponent.score_need - 1)
+                agent.score += 1
+                agent.set_emotion(score_need=agent.score_need + 5)
+                opponent.set_emotion(score_need=opponent.score_need - 3)
 
             self.position.x = screen_width / 2
             self.position.y = screen_height / 2
             if random.randint(0, 1) == 0:
-                self.velocity = -(self.position - agent.position).normalize() * initial_velocity
+                self.velocity = -(self.position - agent.position).normalize() * ball_speed
             else:
-                self.velocity = -(self.position - opponent.position).normalize() * initial_velocity
+                self.velocity = -(self.position - opponent.position).normalize() * ball_speed
 
             if self.paddle_collision(empathizer):
                 self.position.x = self.position.x + empathizer.max_length + self.size / 2
@@ -72,12 +75,10 @@ class Ball:
 
         # Paddle collisions
         if self.paddle_collision(agent):
-            agent.set_emotion(return_need=agent.return_need + 1)
-            opponent.set_emotion(return_need=opponent.return_need - 1)
+            agent.set_emotion(return_need=agent.return_need + 2)
             unfreeze(self.position)
         if self.paddle_collision(opponent):
-            agent.set_emotion(return_need=agent.return_need - 1)
-            opponent.set_emotion(return_need=opponent.return_need + 1)
+            opponent.set_emotion(return_need=opponent.return_need + 2)
             unfreeze(self.position)
         if self.paddle_collision(empathizer):
             unfreeze(self.position)
@@ -119,7 +120,7 @@ class Ball:
                     self.position -= self.velocity * dtime
                     self.velocity.x = self.position.x - paddle_coords[0][0]
                     self.velocity.y = self.position.y - paddle_coords[0][1]
-                    self.velocity = self.velocity.normalize() * initial_velocity
+                    self.velocity = self.velocity.normalize() * ball_speed
                     return True
 
             # If side
@@ -154,19 +155,21 @@ class Ball:
 
 
 class Paddle:
-    def __init__(self, position, width, height, degrees, speed, color, others, emotions=False):
-        self.score_need = 1
-        self.return_need = -1
-        self.progress_need = 125
+    def __init__(self, position, width, height, degrees, paddle_speed, color, others, my_opponent=None, emotions=False):
+        self.score = 0
+
+        self.score_need = 0
+        self.return_need = 0
 
         self.position = position
         self.width = int(width)
         self.height = int(height)
         self.degrees = int(degrees)
-        self.speed = speed
+        self.speed = paddle_speed
         self.color = color
         self.max_length = max(self.width, self.height)
         self.others = others
+        self.my_opponent = my_opponent
         self.emotions = emotions
 
         self.surf = None
@@ -181,14 +184,17 @@ class Paddle:
         self.surf.set_colorkey((255, 255, 255))
 
         border_size = int(self.width / 7)
+        if border_size < 1:
+            border_size = None
 
-        for x in range(0, self.width + border_size, border_size):
-            pg.draw.rect(self.surf, black, [x, 0, border_size, border_size])
-            pg.draw.rect(self.surf, black, [x, self.height - 2, 2, 2])
+        if border_size is not None:
+            for x in range(0, self.width + border_size, border_size):
+                pg.draw.rect(self.surf, black, [x, 0, border_size, border_size])
+                pg.draw.rect(self.surf, black, [x, self.height - border_size, border_size, border_size])
 
-        for x in range(0, self.height + border_size, border_size):
-            pg.draw.rect(self.surf, black, [0, x, border_size, border_size])
-            pg.draw.rect(self.surf, black, [self.width - border_size, x, border_size, border_size])
+            for x in range(0, self.height + border_size, border_size):
+                pg.draw.rect(self.surf, black, [0, x, border_size, border_size])
+                pg.draw.rect(self.surf, black, [self.width - border_size, x, border_size, border_size])
 
         # Set orientation
         self.surf = pg.transform.rotate(self.surf, self.degrees)
@@ -197,14 +203,12 @@ class Paddle:
         self.blit = screen.blit(self.surf, (self.position.x - self.surf.get_width() // 2, self.position.y -
                                             self.surf.get_height() // 2))
 
-    def set_emotion(self, score_need=None, return_need=None, progress_need=None):
+    def set_emotion(self, score_need=None, return_need=None):
         if self.emotions:
-            if progress_need is not None:
-                self.progress_need = progress_need
-                if self.progress_need > 250:
-                    self.progress_need = 250
-                elif self.progress_need < 0:
-                    self.progress_need = 0
+            if self.score > 0 or self.my_opponent.score > 0:
+                score_ratio = self.score / float(self.score + self.my_opponent.score)
+            else:
+                score_ratio = 0.5
 
             if return_need is not None:
                 self.return_need = return_need
@@ -220,8 +224,8 @@ class Paddle:
                 elif self.score_need < -5:
                     self.score_need = -5
 
-        # Set emotion
-        self.color = (int(self.progress_need), int(self.return_need + 5) * 25, int(self.score_need + 5) * 25)
+            # Set emotion
+            self.color = (int((self.score_need + 5) * 25), int(score_ratio * 250), int((self.return_need + 5) * 25))
 
     def update_geometry(self):
         # Update geometrical representation
@@ -249,7 +253,8 @@ class Paddle:
 
         # Horizontal and vertical bounds
         if LineString([(-1, -1), (-1, screen_height + 1), (screen_width + 1, screen_height + 1),
-                       (screen_width + 1, -1), (-1, -1)]).intersects(self.geometry):
+                       (screen_width + 1, -1), (-1, -1)]).intersects(self.geometry) or self.position.x < 0 \
+                or self.position.x > screen_width or self.position.y < 0 or self.position.y > screen_height:
             return True
 
         # Update geometrical representation
@@ -265,7 +270,7 @@ class Paddle:
                 return True
             else:
                 # Taking angle into account (need to consider each side independently)
-                ball.velocity += euclid.Vector2(right /dtime, down / dtime)
+                ball.velocity += euclid.Vector2(right / dtime, down / dtime)
                 # TODO: Add more realistic force physics
                 # paddle_coords = self.geometry.exterior.coords
                 # if LineString([paddle_coords[0], paddle_coords[1]]).intersects(self.geometry):
@@ -281,7 +286,7 @@ class Paddle:
                 #     ball.velocity.x = right * math.cos(self.degrees)
                 #     ball.velocity.y = down * math.sin(self.degrees)
 
-                ball.velocity = ball.velocity.normalize() * initial_velocity
+                ball.velocity = ball.velocity.normalize() * ball_speed
 
         # Inter-paddle bounds
         for paddle in self.others:
@@ -299,7 +304,7 @@ def get_random_velocity(range_min, range_max):
     new_y = math.cos(new_angle)
     new_vector = euclid.Vector2(new_x, new_y)
     new_vector.normalize()
-    new_vector *= initial_velocity
+    new_vector *= ball_speed
     return new_vector
 
 
@@ -315,9 +320,9 @@ if __name__ == "__main__":
     green = 0, 255, 0
     blue = 0, 0, 255
 
-    initial_velocity = 300
+    ball_speed = 400
 
-    screen_size = screen_width, screen_height = 600, 400
+    screen_size = screen_width, screen_height = 300, 200
 
     screen = pg.display.set_mode(screen_size)
 
@@ -326,19 +331,20 @@ if __name__ == "__main__":
     pg.display.set_caption('Empathy in Pong')
 
     empathizer = Paddle(euclid.Vector2(screen_width / 2, screen_width / 80), screen_width / 40, screen_height / 5, 90,
-                        euclid.Vector3(200, 200, 200), red, None)
+                        euclid.Vector3(250, 250, 250), red, None)
     agent = Paddle(euclid.Vector2(screen_width - screen_height / 10, screen_height / 2), screen_width / 40,
-                   screen_height / 5, 0, euclid.Vector3(200, 200, 200), black, None, True)
+                   screen_height / 5, 0, euclid.Vector3(200, 200, 200), black, None, None, True)
     opponent = Paddle(euclid.Vector2(screen_height / 10, screen_height / 2), screen_width / 40, screen_height / 5, 0,
-                      euclid.Vector3(200, 200, 200), black, None, True)
+                      euclid.Vector3(200, 200, 200), black, None, agent, True)
 
+    agent.my_opponent = opponent
     empathizer.others = [agent, opponent]
     agent.others = [empathizer, opponent]
     opponent.others = [agent, empathizer]
 
     ball = Ball(screen_width / 60, blue)
 
-    fps_limit = 60
+    fps_limit = 30
     run_me = True
     while run_me:
         for event in pg.event.get():
@@ -353,16 +359,16 @@ if __name__ == "__main__":
         ball.move()
 
         if ball.position.y > opponent.position.y + ball.size:
-            opponent.move(0, dtime*opponent.speed.y, 0)
+            opponent.move(0, dtime * opponent.speed.y, 0)
         elif ball.position.y < opponent.position.y - ball.size:
-            opponent.move(0, -dtime*opponent.speed.y, 0)
+            opponent.move(0, -dtime * opponent.speed.y, 0)
         else:
             opponent.move(0, 0, 0)
 
         if ball.position.y > agent.position.y + ball.size:
-            agent.move(0, dtime*agent.speed.y, 0)
+            agent.move(0, dtime * agent.speed.y, 0)
         elif ball.position.y < agent.position.y - ball.size:
-            agent.move(0, -dtime*agent.speed.y, 0)
+            agent.move(0, -dtime * agent.speed.y, 0)
         else:
             agent.move(0, 0, 0)
 
@@ -376,9 +382,10 @@ if __name__ == "__main__":
                 ball.position.x = ball.position.x + empathizer.max_length + ball.size / 2
                 ball.position.y = ball.position.y + empathizer.max_length + ball.size / 2
 
-        empathizer.move(-dtime*empathizer.speed.x if keys[pg.K_LEFT] else dtime*empathizer.speed.x if keys[pg.K_RIGHT] else 0,
-                        -dtime*empathizer.speed.y if keys[pg.K_UP] else dtime*empathizer.speed.y if keys[pg.K_DOWN] else 0,
-                        dtime*empathizer.speed.z if keys[pg.K_a] else -dtime*empathizer.speed.z if keys[pg.K_d] else 0)
+        empathizer.move(
+            -dtime * empathizer.speed.x if keys[pg.K_LEFT] else dtime * empathizer.speed.x if keys[pg.K_RIGHT] else 0,
+            -dtime * empathizer.speed.y if keys[pg.K_UP] else dtime * empathizer.speed.y if keys[pg.K_DOWN] else 0,
+            dtime * empathizer.speed.z if keys[pg.K_a] else -dtime * empathizer.speed.z if keys[pg.K_d] else 0)
 
         if 20 < agent.degrees <= 180:
             agent.degrees = 20
@@ -390,8 +397,10 @@ if __name__ == "__main__":
         elif 180 < opponent.degrees < 340:
             agent.degrees = 340
 
-        agent.set_emotion(progress_need=agent.progress_need - .25)
-        opponent.set_emotion(progress_need=opponent.progress_need - .25)
+        agent.set_emotion(score_need=agent.score_need - dtime * 0.4)
+        agent.set_emotion(return_need=agent.return_need - dtime * 0.4)
+        opponent.set_emotion(score_need=opponent.score_need - dtime * 0.4)
+        opponent.set_emotion(return_need=opponent.return_need - dtime * 0.4)
 
         agent.display()
         opponent.display()
